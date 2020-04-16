@@ -1,27 +1,17 @@
 """
-    Class dedicated to read the Hyper files and tables.
+The wrapper for the DSS formatter interface.
 """
-
-from typing import List
 
 import logging
 import os
 import tempfile
 
-from tableauhyperapi import TableDefinition
 from tableauhyperapi import HyperProcess
 from tableauhyperapi import Telemetry
 from tableauhyperapi import Connection
-from tableauhyperapi import CreateMode
-from tableauhyperapi import Inserter
 from tableauhyperapi import TableName
 from tableauhyperapi import HyperException
-from tableauhyperapi import TypeTag
-
-from schema_conversion import dss_is_geo
-from schema_conversion import geo_to_text
 from schema_conversion import SchemaConversion
-
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format='Tableau Plugin | %(levelname)s - %(message)s')
@@ -78,6 +68,10 @@ class TableauTableReader(object):
 
         self.schema_converter = SchemaConversion()
 
+        self.offset = 0
+        self.limit = 10000
+
+        self.end_read = False
 
     def create_tmp_hyper(self):
         """
@@ -85,21 +79,25 @@ class TableauTableReader(object):
         :return: self.path_to_hyper : The path to the temporary file
         """
         self.path_to_hyper = tempfile.NamedTemporaryFile(prefix='output', suffix=".hyper", dir=os.getcwd()).name
-        logger.info("Create a temporary hyper file at location: {}".format(self.path_to_hyper))
         return self.path_to_hyper
 
     def read_buffer(self, stream):
         """
         Read the full stream for storage and hyper file filling
         :param stream:
+        """
+        line = True
+        with open(self.path_to_hyper, "ab") as f:
+            while line:
+                line = stream.read(1024)
+                f.write(line)
+
+    def read_hyper_file(self, path_to_hyper):
+        """
+        Read a hyper file for testing purpose
         :return:
         """
-        # TODO: Lecture par morceaux en byte array (read)
-        lines = stream.readlines()
-        with open(self.path_to_hyper, "ab") as f:
-            for line in lines:
-                f.write(line)
-        logger.info("Store the full storage bytes")
+        self.path_to_hyper = path_to_hyper
 
     def open_connection(self):
         """
@@ -107,7 +105,6 @@ class TableauTableReader(object):
         """
         self.hyper = HyperProcess(Telemetry.DO_NOT_SEND_USAGE_DATA_TO_TABLEAU)
         self.connection = Connection(self.hyper.endpoint, self.path_to_hyper)
-        logger.info("Open the connection to Hyper File")
 
     def read_hyper_columns(self):
         """
@@ -115,15 +112,11 @@ class TableauTableReader(object):
 
         :return: self.hyper_storage_types
         """
-        # Retrieve the table object accessor from the Hyper Table
-        logger.info("Trying to read Hyper Table {}.{}".format(self.schema_name, self.table_name))
         hyper_table = TableName(self.schema_name, self.table_name)
         self.hyper_table = hyper_table
         try:
             table_def = self.connection.catalog.get_table_definition(hyper_table)
         except HyperException as e:
-            logger.warning("The target table does not exists in this hyper file. Requested table: {}.{}"
-                           .format(self.table_name, self.schema_name))
             raise Exception("Table does not exist: {}.{}".format(self.schema_name, self.table_name))
 
         self.hyper_columns = table_def.columns
@@ -135,22 +128,21 @@ class TableauTableReader(object):
         self.schema_converter.set_dss_storage_types(self.dss_storage_types)
         self.schema_converter.set_hyper_storage_types(self.hyper_storage_types)
 
-    def fetch_rows(self):
+    def fetch_rows(self, offset, limit):
         """
-        Retrieve all the rows from the Hyper file db, convert values on the fly
+        Fetch the rows from the temporary hyper file
+        :param offset: The SQL offset from which the lines are read in the file
+        :param limit: The SQL limit is the number of lines read
+        :return: <bool> {The lines have been read.}
         """
-        # For the batch f'SELECT *, geopoint::text FROM {table} OFFSET 48000 LIMIT 2000'
-        sql_hyper_query = f'SELECT {build_query(self.hyper_columns)} FROM {self.hyper_table}'
+        sql_hyper_query = f'SELECT {build_query(self.hyper_columns)} FROM {self.hyper_table} OFFSET {offset} LIMIT {limit}'
         result = self.connection.execute_query(sql_hyper_query)
         for row in result:
-            # TODO: Check time consumption and parallelize the threads potentially
-            dss_row = self.schema_converter.prepare_row_to_dss(row)
-            self.rows.append(dss_row)
-        return True
+            self.rows.append(row)
 
     def close_connection(self):
         """
-            Close the connection to the Hyper File
+        Close the connection to the Hyper File
         :return:
         """
         self.connection.close()
@@ -168,11 +160,20 @@ class TableauTableReader(object):
         Read one row from the stored data
         :return:
         """
-        if self.row_index == len(self.rows):
+        if self.end_read:
             return None
-        line = self.rows[self.row_index]
-        row = {}
-        for column, value in zip(self.dss_columns, line):
-            row[column["name"]] = value
-        self.row_index += 1
-        return row
+        if len(self.rows) == 0:
+            self.fetch_rows(self.offset, self.limit)
+            self.offset += self.limit
+        if len(self.rows) == 0:
+            self.close_connection()
+            self.end_read = True
+            return None
+        else:
+            hyper_row = self.rows.pop()
+            dss_row = self.schema_converter.prepare_row_to_dss(hyper_row)
+            row = {}
+            for column, value in zip(self.dss_columns, dss_row):
+                row[column["name"]] = value
+            self.row_index += 1
+            return row

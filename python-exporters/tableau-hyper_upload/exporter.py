@@ -29,23 +29,29 @@ class TableauHyperExporter(Exporter):
         """
         self.config = config
         self.plugin_config = plugin_config
-        if not 'table_name' in self.config:
-            logger.warning("No table_name detected in config.")
-        logger.info("Detected schema_name: {}".format(self.config['schema_name']))
-        logger.info("Detected table_name: {}".format(self.config['table_name']))
-        # Instantiate the Tableau custom writer
-        self.writer = TableauTableWriter(schema_name=self.config['schema_name'], table_name=self.config['table_name'])
+
+        # Legacy of the user interface of hyper v1
+        username = config.get('username', None)
+        password = config.get('password', None)
+        server_name = config.get('server_url', None)
+        site_name = config.get('site_id', None)
+
+        self.project_name = config.get('project', 'Samples')
+        self.schema_name = config.get('schema_name', 'dss_schema')
+        self.table_name = config.get('output_table', 'dss_table')
+
+        # Non mandatory parameter
+        self.ssl_cert_path = config.get('ssl_cert_path', None)
+
+        self.writer = TableauTableWriter(schema_name=self.schema_name, table_name=self.table_name)
         self.output_file = None
         # Should contain tableau_server
         logger.info("Preset param: {}".format(self.config))
 
-        server_name = self.config['tableau_server']
-        site_name = self.config['tableau_site']
-        username = self.config['username']
-        password = self.config['password']
-
         self.tableau_auth = tsc.TableauAuth(username, password, site_name)
         self.server = tsc.Server(server_name)
+
+        # TODO: Add the check for the project id
 
         with self.server.auth.sign_in(self.tableau_auth):
             all_projects, pagination_item = self.server.projects.get()

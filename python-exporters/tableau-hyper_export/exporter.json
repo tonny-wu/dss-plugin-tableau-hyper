@@ -1,20 +1,20 @@
 {
     "meta" : {
-        "label": "Export Tableau Hyper File",
-        "description": "Hyper file format downloader",
-        "icon": "icon-puzzle-piece"
+        "label" : "To Tableau Hyper extract",
+        "description": "This exporter produces hyper (Tableau extract) files which you can then download to your local machine. Beware, that this plugin is incompatible with previous TDE plugin export and will make it unusable."
     },
 
     "exportBehavior" : "OUTPUT_TO_FILE",
 
     "mime" : {
-        "mimeType": "text/plain",
-        "extension": ".hyper"
+        "mimeType" : "application/hyper",
+        "extension" : ".hyper"
     },
 
     "exportOptions": [
         {
-            "label" : "Tableau, to Hyper File (.hyper)"
+            "label" : "Tableau hyper extract (.hyper)",
+            "compression" : "NONE"
         }
     ],
 

@@ -27,15 +27,21 @@ class TableauHyperExporter(Exporter):
         """
         self.config = config
         self.plugin_config = plugin_config
-        # Retrieve the hyper table configuration
-        if not 'table_name' in self.config:
-            logger.warning("No table_name detected in config.")
-        logger.info("Detected schema_name: {}".format(self.config['schema_name']))
-        logger.info("Detected table_name: {}".format(self.config['table_name']))
+
+        schema_name = self.config.get("schema_name")
+        if schema_name is None:
+            schema_name = "dss_schema"
+
+        table_name = self.config.get("table_name")
+        if table_name is None:
+            table_name = "dss_table"
+
+        logger.info("Detected schema_name: {}".format(schema_name))
+        logger.info("Detected table_name: {}".format(table_name))
+
         # Instantiate the Tableau custom writer
-        self.writer = TableauTableWriter(schema_name=self.config['schema_name'], table_name=self.config['table_name'])
-        # TODO: Should we checked the configuration for the table and schema ?
-        # Will be filled via DSS
+        self.writer = TableauTableWriter(schema_name=schema_name, table_name=table_name)
+
         self.output_file = None
 
     def open(self, schema):
